@@ -1,284 +1,111 @@
-# Advance Text-to-SQL Agent 
-An  AI-powered natural language interface for querying World Bank databases using LangChain, OpenAI, and semantic search techniques.
+<div align="center">
 
-## Project Overview
+# Advanced Text-to-SQL Query System
 
-This project implements an intelligent SQL agent that allows users to query World Bank data using natural language. The system combines multiple AI components including few-shot learning, retrieval-augmented generation (RAG), and multi-model coordination to provide accurate, context-aware responses.
+**Ask questions about World Bank data in plain English and get a SQL-backed, summarised answer.**
 
-## Key Features
+![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-0.1-1C3C3C)
+![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-412991?logo=openai&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![License](https://img.shields.io/badge/License-Apache--2.0-blue)
 
-### Advanced AI Components
+</div>
 
-#### 1. **Few-Shot Learning**
-- Semantic similarity-based example selection using FAISS vector database
-- Dynamic retrieval of relevant query patterns from example database
-- Context-aware prompt engineering with top-K example selection
+## Overview
 
-#### 2. **Retrieval-Augmented Generation (RAG)**
-- Custom TF-IDF search pipeline for indicator discovery
-- Sentence-level query decomposition for improved matching
-- Cosine similarity-based ranking of relevant database indicators
+A natural-language interface to a World Bank indicators database. A question such as *"Are citizens in developed countries more aware of their rights under financial consumer protection laws than those in developing nations?"* goes through four stages:
 
-#### 3. **SQL Agent with Function Calling**
-- LangChain-based SQL agent with OpenAI function calling
-- Intelligent query generation from natural language
-- Database schema-aware query construction
-- Error recovery and query refinement
+1. **Few-shot retrieval**: the 5 most similar example question/SQL pairs are picked with OpenAI embeddings and a FAISS index.
+2. **Indicator search**: a TF-IDF search over the `Indicator` table (name, description, source, topic) finds the indicators that best match each sentence of the question, and their ids are appended to the prompt.
+3. **SQL agent**: a LangChain SQL agent (OpenAI function calling, `gpt-4o` by default) inspects the schema, writes read-only SQL and runs it.
+4. **Summary**: a second, cheaper model (`gpt-4o-mini`) turns the raw rows into a short answer, with averages instead of long tables.
 
-#### 4. **Multi-Stage Summarization**
-- Two-model approach: GPT-4o for queries, GPT-4o-mini for summaries
-- Context-preserving response generation
-- Token-optimized summarization pipeline
-
-### Production-Grade Features
-
-#### **Configuration Management**
-- Environment-based configuration with `.env` support
-- Centralized config class for easy maintenance
-- Validation of required environment variables
-
-#### **Error Handling**
-- Comprehensive try-catch blocks across all components
-- Graceful degradation on API failures
-- User-friendly error messages
-
-#### **Token Tracking & Cost Optimization**
-- OpenAI callback integration for token usage monitoring
-- Cost tracking for production deployment
-- Optimized model selection for different tasks
-
-#### **Custom Search Pipeline**
-- Built-from-scratch TF-IDF vectorization
-- Multi-part query processing with sentence tokenization
-- Deduplication and relevance ranking
-- Performance timing for optimization
-
-#### **Agent Orchestration**
-- Complex prompt engineering with database schema injection
-- Custom SQL generation rules and guardrails
-- Multi-tool coordination (SQL queries, schema inspection)
-- Verbose logging for debugging and monitoring
-
-## Architecture
+## How it works
 
 ```
-User Query
-    ↓
-[NLTK Setup & Preprocessing]
-    ↓
-[Few-Shot Selector] ← FAISS Vector Store
-    ↓
-[Indicator Search] ← TF-IDF Similarity
-    ↓
-[Query Augmentation]
-    ↓
-[SQL Agent] ← LangChain + OpenAI
-    ↓
-[Database Query] ← SQLite
-    ↓
-[Response Summarization] ← GPT-4o-mini
-    ↓
-Final Answer
+question
+   |
+   +--> FewShotSelector   (OpenAI embeddings + FAISS, top 5 examples)
+   +--> IndicatorSearch   (TF-IDF + cosine similarity, top N indicator ids)
+   |
+   v
+augmented prompt --> SQL agent (LangChain, GPT-4o) --> SQLite --> rows
+                                                                    |
+                                       summary (GPT-4o-mini) <------+
 ```
 
-## Project Structure
+Guardrails live in `prompts.py`: the agent is told never to run DML (`INSERT`, `UPDATE`, `DELETE`, `DROP`), to skip NULL and duplicate rows, to add `LIMIT 150` when asked for "all results", and to answer "I don't know" for questions unrelated to the database. Token usage for each query is printed through LangChain's OpenAI callback.
+
+## Tech stack
+
+Python, LangChain, OpenAI (GPT-4o, GPT-4o-mini, embeddings), FAISS, SQLAlchemy and SQLite, scikit-learn (TF-IDF), NLTK (sentence splitting), pandas.
+
+## Project structure
 
 ```
-world-bank-sql-agent/
-├── config.py                 # Configuration management
-├── utils.py                  # NLTK setup, database loading
-├── few_shot_selector.py      # Semantic example selection
-├── indicator_search.py       # TF-IDF search implementation
-├── prompts.py               # All prompt templates
-├── agent.py                 # SQL agent implementation
-├── main.py                  # Application entry point
-├── requirements.txt         # Python dependencies
-├── .env.example            # Environment variables template
-├── .gitignore              # Git ignore rules
+.
+├── main.py                # pipeline: examples -> indicators -> agent -> summary
+├── agent.py               # WorldBankAgent: SQL agent, token tracking, summary call
+├── few_shot_selector.py   # semantic example selection (FAISS)
+├── indicator_search.py    # TF-IDF indicator search
+├── prompts.py             # agent and summary prompts
+├── config.py              # settings read from environment / .env
+├── utils.py               # NLTK setup, loads the Indicator table
+├── requirements.txt
 └── data/
-    ├── world_bank_data_updated.db
-    └── Worldbankfewshots.json
+    └── Worldbankfewshots.json   # placeholder, see "What is not in this repo"
 ```
 
-## Technical Stack
+## What is not in this repo
 
-- **LLM Framework**: LangChain
-- **Models**: OpenAI GPT-4o, GPT-4o-mini
-- **Vector Store**: FAISS
-- **Embeddings**: OpenAI Embeddings
-- **Database**: SQLite with SQLAlchemy
-- **NLP**: NLTK for tokenization
-- **ML**: Scikit-learn for TF-IDF and cosine similarity
-- **Data Processing**: Pandas, NumPy
+This repository holds the code only. To actually run it you need to supply two data files:
 
-## Installation
+- **`data/world_bank_data_updated.db`**: a SQLite database with the World Bank data. It must contain an `Indicator` table with at least the columns `id`, `name`, `description`, `source` and `topic`.
+- **`data/Worldbankfewshots.json`**: the file in the repo is currently empty. It must look like this:
 
-1. **Clone the repository**
-```bash
-git clone https://github.com/yourusername/world-bank-sql-agent.git
-cd world-bank-sql-agent
+```json
+{
+  "FewShots": [
+    { "input": "a natural-language question", "query": "the SQL that answers it" }
+  ]
+}
 ```
 
-2. **Create virtual environment**
+## Setup
+
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-```
-
-3. **Install dependencies**
-```bash
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. **Set up environment variables**
-```bash
-cp .env.example .env 
-# Edit .env and add your OpenAI API key
+`requirements.txt` pins `faiss-gpu`, which only installs on Linux with CUDA. On a Mac, Windows or CPU-only machine, replace it with `faiss-cpu==1.7.4` before installing.
+
+Create a `.env` file in the project root:
+
+```env
+OPENAI_API_KEY=sk-...
 ```
 
-5. **Prepare data files**
-- Place `world_bank_data_updated.db` in the `data/` directory
-- Place `Worldbankfewshots.json` in the `data/` directory
+Optional settings (defaults in brackets): `DATABASE_PATH` (`data/world_bank_data_updated.db`), `FEW_SHOTS_JSON_PATH` (`data/Worldbankfewshots.json`), `CHAT_MODEL` (`gpt-4o`), `SUMMARY_MODEL` (`gpt-4o-mini`), `TEMPERATURE` (`0.1`), `TOP_N_INDICATORS` (`5`), `DEFAULT_LIMIT` (`150`).
 
-##  Usage
+## Usage
 
-### Basic Usage
-
-```python
-from main import main
-
-# Query the database
-query = "What is the GDP growth rate in South Asian countries in 2023?"
-result = main(query)
-```
-
-### Running from Command Line
+`main.py` defines `main(user_query)` but its `__main__` block only sets an example question and does not call it, so running `python main.py` does nothing. Call the function directly:
 
 ```bash
-python main.py
+python -c "from main import main; main('Which countries had the highest GDP growth in 2020?')"
 ```
 
-### Example Queries
+It prints the progress of each stage, the token usage, and finally the summarised answer.
 
-```python
-# Economic indicators
-"Compare GDP growth between developed and developing nations"
+## Notes
 
-# Social indicators
-"Show literacy rates in South Asia for the last 5 years"
+- Answers are only as good as the database and the few-shot examples you provide.
+- Each question makes several OpenAI API calls (embeddings, agent steps, summary), so it costs money. Watch the printed token usage.
+- The pinned LangChain versions (0.1.x) are old; upgrading them will need import changes in `agent.py` and `few_shot_selector.py`.
 
-# Environmental data
-"What are CO2 emissions trends in European countries?"
+## License
 
-# Financial data
-"Are citizens in developed countries more aware of financial consumer protection laws?"
-```
-
-## 🔧 Configuration
-
-Edit `.env` file to customize:
-
-```bash
-# OpenAI Configuration
-OPENAI_API_KEY=your-api-key-here
-CHAT_MODEL=gpt-4o
-SUMMARY_MODEL=gpt-4o-mini
-TEMPERATURE=0.1
-
-# Database
-DATABASE_PATH=data/world_bank_data_updated.db
-
-# Search Parameters
-TOP_N_INDICATORS=5
-DEFAULT_LIMIT=150
-```
-
-## Performance Optimization
-
-- **Token Usage**: Monitored via OpenAI callbacks
-- **Search Speed**: TF-IDF provides <100ms indicator search
-- **Model Selection**: GPT-4o for complex queries, GPT-4o-mini for summaries
-- **Caching**: FAISS vector store for fast semantic search
-- **Query Limits**: Configurable result limits to prevent over-fetching
-
-## Security
-
-- API keys stored in `.env` (not committed to git)
-- SQL injection prevention via LangChain SQL toolkit
-- Read-only database queries (no DML operations)
-- Input validation and sanitization
-
-##  Testing
-
-```bash
-# Run with example query
-python main.py
-
-# Modify query in main.py for testing
-if __name__ == "__main__":
-    query = "Your test query here"
-    main(query)
-```
-
-##  Database Schema
-
-The system works with World Bank data containing:
-- **12 columns**: id, indicator_id, indicator_name, indicator_description, country_id, country_name, country_region, country_incomelevel, country_lendingtype, year, value, unitofmeasure
-- **Time Range**: 2015 onwards
-- **Coverage**: Multiple countries, regions, and economic indicators
-
-##  Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-##  License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-##  Author
-
-**Your Name**
-- GitHub: [@AnnasMustafaDev](https://github.com/AnnasMustafaDev)
-- LinkedIn: [Annas Mustafa](https://linkedin.com/in/annas-mustafa)
-
-##  Acknowledgments
-
-- World Bank for providing comprehensive economic data
-- OpenAI for GPT models
-- LangChain community for excellent documentation
-- FAISS for efficient vector similarity search
-
-##  Project Complexity
-
-This project demonstrates **senior-level AI engineering skills** including:
-
-✅ **Multiple AI Components Integration**
-- Few-shot learning with semantic similarity
-- RAG pipeline with custom search
-- SQL agent with function calling
-- Multi-stage summarization
-
-✅ **Production-Ready Features**
-- Configuration management
-- Comprehensive error handling
-- Token usage tracking and cost optimization
-- Modular, maintainable architecture
-
-✅ **Custom ML Pipelines**
-- TF-IDF search built from scratch
-- Sentence-level query decomposition
-- Relevance ranking algorithms
-
-✅ **Advanced Agent Orchestration**
-- Complex prompt engineering
-- Multi-tool coordination
-- Dynamic query augmentation
-
-✅ **Multi-Model Coordination**
-- Task-appropriate model selection
-- Cost-performance optimization
-- Parallel processing pipelines
-
----
-
-⭐ **Star this repository** if you find it useful!
+Apache License 2.0. See [LICENSE](LICENSE).
